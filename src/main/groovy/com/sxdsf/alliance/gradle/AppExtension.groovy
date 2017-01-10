@@ -8,7 +8,7 @@ package com.sxdsf.alliance.gradle
  */
 class AppExtension {
 
-    static final def CONFIG_NAME = 'jdbModule'
+    static final CONFIG_NAME = 'jdbModule'
 
     int packageId
 

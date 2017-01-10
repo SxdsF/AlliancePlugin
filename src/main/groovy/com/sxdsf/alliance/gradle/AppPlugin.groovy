@@ -1,5 +1,6 @@
 package com.sxdsf.alliance.gradle
 
+import com.android.build.gradle.internal.pipeline.TransformTask
 import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.android.build.gradle.tasks.factory.AndroidJavaCompile
 import org.gradle.api.Plugin
@@ -14,9 +15,9 @@ import org.gradle.api.Task
  */
 class AppPlugin implements Plugin<Project> {
 
-    private static final def RELEASE = 'Release'
-    private static final def DEBUG = 'Debug'
-    private static final def DEPENDENCY_MODE_NAME = 'excludedCompile'
+    private static final RELEASE = 'Release'
+    private static final DEBUG = 'Debug'
+    private static final DEPENDENCY_MODE_NAME = 'excludedCompile'
 
     @Override
     void apply(Project target) {
@@ -29,91 +30,75 @@ class AppPlugin implements Plugin<Project> {
             compile target.configurations.getByName(DEPENDENCY_MODE_NAME)
         }
 
-        target.afterEvaluate {
+        target.afterEvaluate { Project tProject ->
 
-            def libraries = []
-            def dependencies = target.configurations.getByName(DEPENDENCY_MODE_NAME).resolvedConfiguration.firstLevelModuleDependencies
-            dependencies.each {
-                println "dependencies module group:${it.moduleGroup}"
-                println "dependencies module name:${it.moduleName}"
-                println "dependencies module version:${it.moduleVersion}"
-                println "dependencies name:${it.name}"
-                println "dependencies configuration:${it.configuration}"
-                println "dependencies module id:${it.module.id}"
-                it.children.each {
-                    println "children:${it.name}"
-                }
-            }
+            int tPackageId = tProject.extensions.getByName(AppExtension.CONFIG_NAME).packageId
+            List<String> tExcludeLibs = tProject.extensions.getByName(AppExtension.CONFIG_NAME).excludeLibs
 
-            def tPackageId = target.extensions.getByName(AppExtension.CONFIG_NAME).packageId
-            def tExcludeLibs = target.extensions.getByName(AppExtension.CONFIG_NAME).excludeLibs
-            tExcludeLibs.each {
-                println it
-            }
             if (!isValid(tPackageId)) {
                 return
             }
 
             //判断当前是release还是debug
-            def tBuildType = isRelease(target) ? RELEASE : DEBUG
-            ProcessAndroidResources tProcessAndroidResources = (ProcessAndroidResources) target.tasks.findByName("process${tBuildType}Resources")
+            def tBuildType = isRelease(tProject) ? RELEASE : DEBUG
+            ProcessAndroidResources tProcessAndroidResources = (ProcessAndroidResources) tProject.tasks.findByName("process${tBuildType}Resources")
             tProcessAndroidResources.doFirst {
-                File tFile = new File(packageOutputFile.parentFile.parentFile, "exploded-aar${File.separator}GradleDemo")
+//                File tFile = new File(packageOutputFile.parentFile.parentFile, "exploded-aar${File.separator}GradleDemo")
 //                tFile.deleteDir()
             }
 
-            //添加资源修改task
-            Task tModifyPackageId = target.task ModifyAppPackageIdTask.TASK_NAME, type: ModifyAppPackageIdTask,
-                    { ModifyAppPackageIdTask tTask ->
-                        tTask.mPackageId = tPackageId
-                        tTask.mApFile = tProcessAndroidResources.packageOutputFile
-                        tTask.mSourceOutputDir = tProcessAndroidResources.sourceOutputDir
-                        tTask.mSymbolOutputDir = tProcessAndroidResources.textSymbolOutputDir
-                    }
+            tProcessAndroidResources << {
+                //修改packageId
+                File tUnZipApFile = PluginHooker.modifyPackageId(tProject, tPackageId,
+                        tProcessAndroidResources.packageOutputFile,
+                        tProcessAndroidResources.sourceOutputDir,
+                        tProcessAndroidResources.textSymbolOutputDir)
 
-            //处理资源task要以修改packageId task结尾
-            tProcessAndroidResources.finalizedBy tModifyPackageId
+                //清除不要的res资源
+                PluginHooker.excludeRes(tProject, tUnZipApFile, null)
+            }
 
+            //添加重新zip *.ap_文件task
             def tReZipDir = tProcessAndroidResources.packageOutputFile.parentFile.path
             def tArchiveName = "resources-${tBuildType}.ap_"
-            //添加重新zip *.ap_文件task
-            Task tReZipAp = target.task "${ReZipApTask.TASK_NAME}", type: ReZipApTask, {
-                destinationDir = new File(tReZipDir)
-                archiveName = tArchiveName
-                from {
-                    "${tReZipDir}${File.separator}${ModifyAppPackageIdTask.AP_UNZIP_FILE_NAME}"
+            Task tReZipAp = tProject.task "${ReZipApTask.TASK_NAME}", type: ReZipApTask, { ReZipApTask reZipApTask ->
+                reZipApTask.destinationDir = new File(tReZipDir)
+                reZipApTask.archiveName = tArchiveName
+                reZipApTask.from {
+                    "${tReZipDir}${File.separator}${PluginHooker.AP_UNZIP_FILE_NAME}"
                 }
 
             }
+            //处理资源task要以reZipAp task结尾
+            tProcessAndroidResources.finalizedBy tReZipAp
 
-            //修改packageId task要以reZipAp task结尾
-            tModifyPackageId.finalizedBy tReZipAp
+            def libraries = []
+            def dependencies = tProject.configurations.getByName(DEPENDENCY_MODE_NAME).resolvedConfiguration.firstLevelModuleDependencies
+            dependencies.each {
+                libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
+                it.children.each {
+                    libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
+                }
+            }
 
-            AndroidJavaCompile tCompileJava = (AndroidJavaCompile) target.tasks.findByName("compile${tBuildType}JavaWithJavac")
-            println "compile destination:${tCompileJava.destinationDir}"
+            AndroidJavaCompile tCompileJava = (AndroidJavaCompile) tProject.tasks.findByName("compile${tBuildType}JavaWithJavac")
+            tCompileJava << {
+                //清除不需要的classes
+                PluginHooker.excludeClasses(tProject, tCompileJava.destinationDir, tExcludeLibs)
 
-//
-//            TransformTask tTransformTask = (TransformTask) target.tasks.findByName("transformClassesWithDexFor${tBuildType}")
-//
-//            AndroidJarTask tAndroidJarTask = (AndroidJarTask) target.tasks.findByName("jar${tBuildType}Classes")
-//            println "archive path:${tAndroidJarTask.archivePath}"
-//            println "archive destination:${tAndroidJarTask.destinationDir}"
 
-            Task tRemoveLibraryClasses = target.task "${RemoveLibraryClassesTask.TASK_NAME}", type: RemoveLibraryClassesTask
+            }
 
-            tCompileJava.finalizedBy tRemoveLibraryClasses
-//
-//            target.tasks.findByName("package${tBuildType}").doFirst {
-//                File tFile = new File('/Users/sunbowen/Documents/workspaces/private/Gradle/GradleDemo/app/build/intermediates/pre-dexed/debug')
-//                tFile.eachFile {
-//                    println "before package:${it.name}"
-//                }
-//            }
+            TransformTask tTransformTask = (TransformTask) tProject.tasks.findByName("transformClassesWithDexFor${tBuildType}")
+            tTransformTask.doFirst {
+                //重命名不需要的jar包
+                PluginHooker.reNameExcludeJars(tProject, new File(tProject.buildDir, "intermediates${File.separator}exploded-aar"), libraries)
+            }
 
-//            target.tasks.each {
-//                println "task name:${it.name} task class:${it.class}"
-//                println ""
-//            }
+            tTransformTask << {
+                //将上一步重命名的jar包恢复
+                PluginHooker.reverseReNameExcludeJars(tProject, new File(tProject.buildDir, "intermediates${File.separator}exploded-aar"), libraries)
+            }
         }
     }
 

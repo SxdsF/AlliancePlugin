@@ -10,5 +10,5 @@ import org.gradle.api.tasks.bundling.Zip
  */
 class ReZipApTask extends Zip {
 
-    static final def TASK_NAME = 'reZipAp'
+    static final TASK_NAME = 'reZipAp'
 }

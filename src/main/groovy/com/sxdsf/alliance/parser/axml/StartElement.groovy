@@ -54,7 +54,7 @@ class StartElement extends Element {
     @Override
     byte[] bytes() {
         ByteBuffer tByteBuffer = ByteBuffer.allocate(length())
-        tByteBuffer.put(Object.bytes()).put(mResXmlTreeAttrExt.bytes())
+        tByteBuffer.put(super.bytes()).put(mResXmlTreeAttrExt.bytes())
         if (mGapBetweenAttrFromHead != null && mGapBetweenAttrFromHead.length > 0) {
             tByteBuffer.put(mGapBetweenAttrFromHead)
         }
@@ -68,7 +68,7 @@ class StartElement extends Element {
 
     @Override
     int length() {
-        int length = Object.length() + mResXmlTreeAttrExt.length()
+        int length = super.length() + mResXmlTreeAttrExt.length()
         if (mGapBetweenAttrFromHead != null && mGapBetweenAttrFromHead.length > 0) {
             length += mGapBetweenAttrFromHead.length
         }
