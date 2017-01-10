@@ -1,5 +1,6 @@
 package com.sxdsf.alliance.gradle
 
+import com.android.build.gradle.tasks.ProcessAndroidResources
 import com.sxdsf.alliance.parser.arsc.ResourcesArsc
 import com.sxdsf.alliance.parser.axml.ResourceAXml
 import org.gradle.api.Project
@@ -18,6 +19,82 @@ class PluginHooker {
     private static final ANDROID_MANIFEST = 'AndroidManifest.xml'
     private static final RES_DIR_PATTERN = 'res/**/*'
     private static final ANDROID_SUPPORT = 'com.android.support'
+
+    /**
+     * 重命名AndroidManifest文件
+     *
+     * @param project 当前工程
+     * @param dir 所在文件夹
+     * @param libraries 不需要的库
+     * @return
+     */
+    static reNameExcludeAndroidManifest(Project project, File dir, List<Library> libraries) {
+
+        println ":${project.name}:reNameExcludeAndroidManifest"
+
+        libraries.each {
+            if (ANDROID_SUPPORT == it.mModuleGroup) {
+                reNameAndroidManifest(new File(dir, it.mModuleGroup))
+            } else {
+                reNameAndroidManifest(new File(dir, "${it.mModuleGroup}${File.separator}${it.mModuleName}${File.separator}${it.mModuleVersion}"))
+            }
+        }
+
+    }
+
+    private static reNameAndroidManifest(File file) {
+        if (!file) {
+            return
+        }
+
+        if (!file.exists()) {
+            return
+        }
+
+        traverseFile file, { File temp ->
+            if (temp.name == ANDROID_MANIFEST) {
+                temp.renameTo(new File(temp.parentFile, "${temp.name}.tmp"))
+            }
+        }
+    }
+
+    /**
+     * 重置重命名的AndroidManifest文件
+     *
+     * @param project 当前工程
+     * @param dir 所在文件夹
+     * @param libraries 不需要的库
+     * @return
+     */
+    static reverseReNameExcludeAndroidManifest(Project project, File dir, List<Library> libraries) {
+
+        println ":${project.name}:reverseReNameExcludeAndroidManifest"
+
+        libraries.each {
+            if (ANDROID_SUPPORT == it.mModuleGroup) {
+                reverseReNameAndroidManifest(new File(dir, it.mModuleGroup))
+            } else {
+                reverseReNameAndroidManifest(new File(dir, "${it.mModuleGroup}${File.separator}${it.mModuleName}${File.separator}${it.mModuleVersion}"))
+            }
+        }
+
+    }
+
+    private static reverseReNameAndroidManifest(File file) {
+        if (!file) {
+            return
+        }
+
+        if (!file.exists()) {
+            return
+        }
+
+        traverseFile file, { File temp ->
+            if (temp.name == "AndroidManifest.xml.tmp") {
+                temp.renameTo(new File(temp.parentFile, "${temp.name.substring(0, temp.name.length() - 4)}"))
+            }
+        }
+    }
 
     /**
      * 修改资源Id的task，一共有5步
@@ -218,14 +295,6 @@ class PluginHooker {
             return
         }
 
-//        if (file.isDirectory()) {
-//            reNameJar(file)
-//        } else {
-//            if (file.name.endsWith('.jar')) {
-//                file.renameTo(new File(file.parentFile, "${file.name}.tmp"))
-//            }
-//        }
-
         traverseFile file, { File temp ->
             if (temp.name.endsWith('.jar')) {
                 temp.renameTo(new File(temp.parentFile, "${temp.name}.tmp"))
@@ -246,15 +315,15 @@ class PluginHooker {
 
         libraries.each {
             if (ANDROID_SUPPORT == it.mModuleGroup) {
-                revereReNameJar(new File(jarsDir, it.mModuleGroup))
+                reverseReNameJar(new File(jarsDir, it.mModuleGroup))
             } else {
-                revereReNameJar(new File(jarsDir, "${it.mModuleGroup}${File.separator}${it.mModuleName}${File.separator}${it.mModuleVersion}"))
+                reverseReNameJar(new File(jarsDir, "${it.mModuleGroup}${File.separator}${it.mModuleName}${File.separator}${it.mModuleVersion}"))
             }
         }
 
     }
 
-    private static revereReNameJar(File file) {
+    private static reverseReNameJar(File file) {
         if (!file) {
             return
         }
@@ -263,17 +332,29 @@ class PluginHooker {
             return
         }
 
-//        if (file.isDirectory()) {
-//            reNameJar(file)
-//        } else {
-//            if (file.name.endsWith('.jar.tmp')) {
-//                file.renameTo(new File(file.parentFile, "${file.name.substring(0, file.length() - 4)}"))
-//            }
-//        }
-
         traverseFile file, { File temp ->
             if (temp.name.endsWith('.jar.tmp')) {
                 temp.renameTo(new File(temp.parentFile, "${temp.name.substring(0, temp.name.length() - 4)}"))
+            }
+        }
+    }
+
+
+    static clearExcludeResources(Project project, ProcessAndroidResources processAndroidResources, List<Library> libraries) {
+
+        println ":${project.name}:clearExcludeResources"
+
+        libraries.each { Library library ->
+            processAndroidResources.libraries.each {
+                if (it.assetsFolder.name.contains(library.mModuleGroup)) {
+                    it.assetsFolder.eachFile {
+                        it.deleteOnExit()
+                    }
+
+                    it.jniFolder.eachFile {
+                        it.deleteOnExit()
+                    }
+                }
             }
         }
     }
@@ -287,16 +368,6 @@ class PluginHooker {
         if (!file.exists()) {
             return
         }
-
-//        if (file.isDirectory()) {
-//            file.eachFile {
-//                modifyXml(it, id)
-//            }
-//        } else {
-//            if (file.name.endsWith('.xml')) {
-//                new ResourceAXml(file).modifyPackageId(id).write()
-//            }
-//        }
 
         traverseFile file, { File temp ->
             if (temp.name.endsWith('.xml')) {
@@ -313,16 +384,6 @@ class PluginHooker {
         if (!file.exists()) {
             return
         }
-
-//        if (file.isDirectory()) {
-//            file.eachFile {
-//                modifyRJava(it, id)
-//            }
-//        } else {
-//            if (file.name.contains('R') && file.name.endsWith('.java')) {
-//                modifyRFile(file, id)
-//            }
-//        }
 
         traverseFile file, { File temp ->
             if (temp.name.contains('R') && temp.name.endsWith('.java')) {
@@ -395,7 +456,7 @@ class PluginHooker {
 
     private static traverseFile(File file, Closure closure) {
         if (file.exists()) {
-            LinkedList<File> tDirectories = new LinkedList<File>()
+            List<File> tDirectories = new LinkedList<>()
             File[] files = file.listFiles()
             for (File temp : files) {
                 if (temp.isDirectory()) {

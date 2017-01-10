@@ -39,15 +39,26 @@ class AppPlugin implements Plugin<Project> {
                 return
             }
 
+            def libraries = []
+            def dependencies = tProject.configurations.getByName(DEPENDENCY_MODE_NAME).resolvedConfiguration.firstLevelModuleDependencies
+            dependencies.each {
+                libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
+                it.children.each {
+                    libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
+                }
+            }
+
             //判断当前是release还是debug
             def tBuildType = isRelease(tProject) ? RELEASE : DEBUG
             ProcessAndroidResources tProcessAndroidResources = (ProcessAndroidResources) tProject.tasks.findByName("process${tBuildType}Resources")
             tProcessAndroidResources.doFirst {
-//                File tFile = new File(packageOutputFile.parentFile.parentFile, "exploded-aar${File.separator}GradleDemo")
-//                tFile.deleteDir()
+                //重命名不需要的AndroidManifest文件
+                PluginHooker.reNameExcludeAndroidManifest(tProject, new File(tProject.buildDir, "intermediates${File.separator}exploded-aar"), libraries)
             }
 
             tProcessAndroidResources << {
+                //恢复重命名的AndroidManifest文件
+                PluginHooker.reverseReNameExcludeAndroidManifest(tProject, new File(tProject.buildDir, "intermediates${File.separator}exploded-aar"), libraries)
                 //修改packageId
                 File tUnZipApFile = PluginHooker.modifyPackageId(tProject, tPackageId,
                         tProcessAndroidResources.packageOutputFile,
@@ -72,15 +83,6 @@ class AppPlugin implements Plugin<Project> {
             //处理资源task要以reZipAp task结尾
             tProcessAndroidResources.finalizedBy tReZipAp
 
-            def libraries = []
-            def dependencies = tProject.configurations.getByName(DEPENDENCY_MODE_NAME).resolvedConfiguration.firstLevelModuleDependencies
-            dependencies.each {
-                libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
-                it.children.each {
-                    libraries << new PluginHooker.Library(mModuleGroup: it.moduleGroup, mModuleName: it.moduleName, mModuleVersion: it.moduleVersion)
-                }
-            }
-
             AndroidJavaCompile tCompileJava = (AndroidJavaCompile) tProject.tasks.findByName("compile${tBuildType}JavaWithJavac")
             tCompileJava << {
                 //清除不需要的classes
@@ -98,6 +100,9 @@ class AppPlugin implements Plugin<Project> {
             tTransformTask << {
                 //将上一步重命名的jar包恢复
                 PluginHooker.reverseReNameExcludeJars(tProject, new File(tProject.buildDir, "intermediates${File.separator}exploded-aar"), libraries)
+
+                //清除其他非编译资源
+                PluginHooker.clearExcludeResources(tProject, tProcessAndroidResources, libraries)
             }
         }
     }
